@@ -1,4 +1,5 @@
-import { Users, Clock, CalendarDays, ArrowUpRight, ShieldCheck, ShieldAlert } from "lucide-react";
+import Link from "next/link";
+import { Users, Clock, CalendarDays, ArrowUpRight, ShieldCheck, ShieldAlert, WalletCards } from "lucide-react";
 import { requireAdmin } from "@/lib/auth/dal";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,30 +10,29 @@ const statStyles = [
   { bg: "bg-accent text-primary", icon: Users },
   { bg: "bg-[#e8f3ff] text-[#1b84e8]", icon: Clock },
   { bg: "bg-[#e8fff3] text-[#1bb37c]", icon: CalendarDays },
+  { bg: "bg-violet-50 text-violet-700", icon: WalletCards },
 ];
 
 export default async function AdminDashboardPage() {
   const profile = await requireAdmin();
   const supabase = await createClient();
 
-  const { data: company } = await supabase
-    .from("companies")
-    .select("name, slug, status")
-    .eq("id", profile.company_id)
-    .single();
-
-  const { count: employeeCount } = await supabase
-    .from("users")
-    .select("id", { count: "exact", head: true })
-    .eq("company_id", profile.company_id)
-    .neq("auth_user_id", null);
+  const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata"}).format(new Date());
+  const [{data:company},{count:employeeCount},{count:onDutyToday},{count:pendingLeave},{data:latestPayroll}]=await Promise.all([
+    supabase.from("companies").select("name, slug, status").eq("id",profile.company_id).single(),
+    supabase.from("users").select("id",{count:"exact",head:true}).eq("company_id",profile.company_id).in("employment_status",["active","onboarding","notice_period"]),
+    supabase.from("attendance_records").select("id",{count:"exact",head:true}).eq("company_id",profile.company_id).eq("attendance_date",today).in("status",["present","work_from_home","field_work","half_day"]),
+    supabase.from("leave_requests").select("id",{count:"exact",head:true}).eq("company_id",profile.company_id).in("status",["submitted","pending_manager","pending_hr","cancellation_pending"]),
+    supabase.from("payroll_runs").select("id,status,period_start,period_end,net_total,employee_count").eq("company_id",profile.company_id).order("period_end",{ascending:false}).limit(1).maybeSingle(),
+  ]);
 
   const pendingVerification = company?.status === "pending_verification";
 
   const stats = [
-    { label: "Team members", value: String(employeeCount ?? 0), hint: "Active + invited", href: "/admin/employees" },
-    { label: "On duty today", value: "0", hint: "Attendance module", href: "/admin/attendance" },
-    { label: "Leave requests", value: "0", hint: "Awaiting review", href: "/admin/leave" },
+    { label: "Active employees", value: String(employeeCount ?? 0), hint: "Active, onboarding and notice period", href: "/admin/employees" },
+    { label: "On duty today", value: String(onDutyToday??0), hint: `Attendance recorded on ${new Date(`${today}T00:00:00`).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}`, href: "/admin/attendance" },
+    { label: "Pending leave requests", value: String(pendingLeave??0), hint: "Awaiting manager or HR review", href: "/admin/leave?tab=overview" },
+    { label: "Latest net payroll", value: latestPayroll?new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(latestPayroll.net_total)):"—", hint: latestPayroll?`${latestPayroll.employee_count} employees · ${latestPayroll.status.replaceAll("_"," ")}`:"No payroll run created", href: "/admin/payroll?tab=runs" },
   ];
 
   return (
@@ -76,11 +76,11 @@ export default async function AdminDashboardPage() {
       </div>
 
       {/* Stat widgets */}
-      <div className="grid gap-5 sm:grid-cols-3">
+      <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((s, i) => {
           const Icon = statStyles[i].icon;
           return (
-            <Card key={s.label} className="border-border/80 shadow-sm">
+            <Link key={s.label} href={s.href} className="group"><Card className="h-full border-border/80 shadow-sm transition group-hover:-translate-y-0.5 group-hover:border-primary/30 group-hover:shadow-md">
               <CardContent className="flex items-center gap-4 p-5">
                 <span className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-xl", statStyles[i].bg)}>
                   <Icon className="h-6 w-6" />
@@ -92,9 +92,10 @@ export default async function AdminDashboardPage() {
                   <div className="truncate text-[13px] font-medium text-muted-foreground">
                     {s.label}
                   </div>
+                  <div className="mt-1 truncate text-[11px] text-muted-foreground/80">{s.hint}</div>
                 </div>
               </CardContent>
-            </Card>
+            </Card></Link>
           );
         })}
       </div>

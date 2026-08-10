@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireAdmin } from "@/lib/auth/dal";
+import { requirePermission } from "@/lib/permissions/access";
+import type { PermissionCode } from "@/lib/permissions/catalog";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Json } from "@/types/database";
@@ -14,10 +15,10 @@ const PolicySchema=z.object({name:z.string().trim().min(2).max(100),code:z.strin
 const amount=(value:Json|undefined)=>typeof value==="object"&&value&&!Array.isArray(value)?Object.values(value).reduce<number>((sum,item)=>sum+(typeof item==="number"?item:0),0):0;
 const dates=(start:string,end:string)=>{const output:string[]=[];const cursor=new Date(`${start}T00:00:00Z`);const last=new Date(`${end}T00:00:00Z`);while(cursor<=last){output.push(cursor.toISOString().slice(0,10));cursor.setUTCDate(cursor.getUTCDate()+1)}return output};
 const refresh=()=>{revalidatePath("/admin/payroll");revalidatePath("/employee/payroll");revalidatePath("/self-service/payroll")};
-async function payrollAdmin(){const user=await requireAdmin();if(!["super_admin","hr_admin","finance"].includes(user.role))throw new Error("Payroll access denied.");return user}
+async function payrollAdmin(permission:PermissionCode){return requirePermission(permission)}
 
 export async function createPayrollRun(input:z.input<typeof RunSchema>):Promise<PayrollActionResult>{
-  const actor=await payrollAdmin();const parsed=RunSchema.safeParse(input);if(!parsed.success)return{ok:false,message:parsed.error.issues[0]?.message??"Invalid payroll run."};
+  const actor=await payrollAdmin("payroll.run.create");const parsed=RunSchema.safeParse(input);if(!parsed.success)return{ok:false,message:parsed.error.issues[0]?.message??"Invalid payroll run."};
   const [year,month]=parsed.data.month.split("-").map(Number);const last=new Date(year,month,0).getDate();const periodStart=`${parsed.data.month}-01`,periodEnd=`${parsed.data.month}-${last}`;const supabase=createAdminClient();
   const runNumber=`PAY-${parsed.data.month.replace("-","")}-${Date.now().toString().slice(-5)}`;
   const {data,error}=await supabase.from("payroll_runs").insert({company_id:actor.company_id,run_number:runNumber,run_type:parsed.data.runType,status:"draft",period_start:periodStart,period_end:periodEnd,payment_date:parsed.data.paymentDate,attendance_cutoff:periodEnd,leave_cutoff:periodEnd,payroll_group:parsed.data.payrollGroup,created_by:actor.id}).select("id").single();
@@ -25,7 +26,7 @@ export async function createPayrollRun(input:z.input<typeof RunSchema>):Promise<
 }
 
 export async function saveSalaryStructure(input:z.input<typeof SalarySchema>):Promise<PayrollActionResult>{
-  const actor=await payrollAdmin();if(actor.role==="finance")return{ok:false,message:"Finance can view salary structures but cannot change them."};const parsed=SalarySchema.safeParse(input);if(!parsed.success)return{ok:false,message:parsed.error.issues[0]?.message??"Invalid salary structure."};const supabase=await createClient();
+  const actor=await payrollAdmin("salary.structure.assign");const parsed=SalarySchema.safeParse(input);if(!parsed.success)return{ok:false,message:parsed.error.issues[0]?.message??"Invalid salary structure."};const supabase=await createClient();
   const rpcResult=await supabase.rpc("assign_payroll_salary_structure",{p_employee_id:parsed.data.employeeId,p_name:parsed.data.name,p_monthly_fixed:parsed.data.monthlyFixed,p_effective_from:parsed.data.effectiveFrom,p_earnings:parsed.data.earnings,p_deductions:parsed.data.deductions});
   if(!rpcResult.error){refresh();return{ok:true,message:"Salary structure saved successfully."}}
   if(rpcResult.error.code!=="PGRST202"&&!rpcResult.error.message.includes("assign_payroll_salary_structure"))return{ok:false,message:rpcResult.error.message};
@@ -35,12 +36,12 @@ export async function saveSalaryStructure(input:z.input<typeof SalarySchema>):Pr
 }
 
 export async function savePayrollPolicy(input:z.input<typeof PolicySchema>):Promise<PayrollActionResult>{
-  const actor=await payrollAdmin();if(actor.role==="finance")return{ok:false,message:"Finance cannot create policies."};const parsed=PolicySchema.safeParse(input);if(!parsed.success)return{ok:false,message:parsed.error.issues[0]?.message??"Invalid policy."};const supabase=createAdminClient();
+  const actor=await payrollAdmin("payout.policy.create");const parsed=PolicySchema.safeParse(input);if(!parsed.success)return{ok:false,message:parsed.error.issues[0]?.message??"Invalid policy."};const supabase=createAdminClient();
   const {data:latest}=await supabase.from("payroll_policies").select("version").eq("company_id",actor.company_id).eq("code",parsed.data.code.toUpperCase()).order("version",{ascending:false}).limit(1).maybeSingle();const {error}=await supabase.from("payroll_policies").insert({company_id:actor.company_id,name:parsed.data.name,code:parsed.data.code.toUpperCase(),category:parsed.data.category,description:parsed.data.description??null,version:(latest?.version??0)+1,status:"draft",effective_from:parsed.data.effectiveFrom,divisor_method:parsed.data.divisorMethod,sandwich_enabled:parsed.data.sandwichEnabled,created_by:actor.id,conditions:[],actions:[]});if(error)return{ok:false,message:error.message};refresh();return{ok:true,message:"Draft payroll policy created."};
 }
 
 export async function calculatePayrollRun(runId:string):Promise<PayrollActionResult>{
-  const actor=await payrollAdmin();const supabase=createAdminClient();const {data:run}=await supabase.from("payroll_runs").select("*").eq("id",runId).eq("company_id",actor.company_id).maybeSingle();if(!run)return{ok:false,message:"Payroll run not found."};if(!["draft","review_required","reopened"].includes(run.status))return{ok:false,message:"This payroll run cannot be recalculated in its current state."};
+  const actor=await payrollAdmin("payroll.run.calculate");const supabase=createAdminClient();const {data:run}=await supabase.from("payroll_runs").select("*").eq("id",runId).eq("company_id",actor.company_id).maybeSingle();if(!run)return{ok:false,message:"Payroll run not found."};if(!["draft","review_required","reopened"].includes(run.status))return{ok:false,message:"This payroll run cannot be recalculated in its current state."};
   await supabase.from("payroll_runs").update({status:"calculating",input_snapshot_at:new Date().toISOString()}).eq("id",run.id);
   const [{data:employees},{data:salaries},{data:attendance},{data:leaveDays},{data:holidays},{data:policies}]=await Promise.all([
     supabase.from("users").select("id,full_name,employee_code,date_of_joining,employment_status,department_id,work_location,bank_details").eq("company_id",actor.company_id).in("employment_status",["active","onboarding","notice_period"]).or(`date_of_joining.is.null,date_of_joining.lte.${run.period_end}`),
@@ -63,7 +64,7 @@ export async function calculatePayrollRun(runId:string):Promise<PayrollActionRes
 }
 
 export async function transitionPayrollRun(runId:string,action:"approve"|"lock"|"mark_paid"|"publish",reference?:string):Promise<PayrollActionResult>{
-  const actor=await payrollAdmin();const supabase=createAdminClient();const {data:run}=await supabase.from("payroll_runs").select("*").eq("id",runId).eq("company_id",actor.company_id).maybeSingle();if(!run)return{ok:false,message:"Payroll run not found."};const allowed:Record<string,[string,string]>={approve:["review_required","approved"],lock:["approved","locked"],mark_paid:["locked","paid"],publish:["paid","published"]};const [from,to]=allowed[action];if(run.status!==from)return{ok:false,message:`Run must be ${from.replaceAll("_"," ")} before this action.`};if(action==="approve"&&run.exception_count>0)return{ok:false,message:"Resolve critical exceptions before approval."};const update:{status:string;approved_by?:string;approved_at?:string;locked_by?:string;locked_at?:string;paid_at?:string;payment_reference?:string;published_at?:string}={status:to};if(action==="approve"){update.approved_by=actor.id;update.approved_at=new Date().toISOString()}if(action==="lock"){update.locked_by=actor.id;update.locked_at=new Date().toISOString()}if(action==="mark_paid"){if(!reference?.trim())return{ok:false,message:"Payment reference is required."};update.paid_at=new Date().toISOString();update.payment_reference=reference.trim()}if(action==="publish")update.published_at=new Date().toISOString();const {error}=await supabase.from("payroll_runs").update(update).eq("id",run.id);if(error)return{ok:false,message:error.message};
+  const actionPermission:Record<typeof action,PermissionCode>={approve:"payroll.run.approve",lock:"payroll.run.lock",mark_paid:"payroll.payment.mark_paid",publish:"salary_slip.publish"};const actor=await payrollAdmin(actionPermission[action]);const supabase=createAdminClient();const {data:run}=await supabase.from("payroll_runs").select("*").eq("id",runId).eq("company_id",actor.company_id).maybeSingle();if(!run)return{ok:false,message:"Payroll run not found."};const allowed:Record<string,[string,string]>={approve:["review_required","approved"],lock:["approved","locked"],mark_paid:["locked","paid"],publish:["paid","published"]};const [from,to]=allowed[action];if(run.status!==from)return{ok:false,message:`Run must be ${from.replaceAll("_"," ")} before this action.`};if(action==="approve"&&run.exception_count>0)return{ok:false,message:"Resolve critical exceptions before approval."};const update:{status:string;approved_by?:string;approved_at?:string;locked_by?:string;locked_at?:string;paid_at?:string;payment_reference?:string;published_at?:string}={status:to};if(action==="approve"){update.approved_by=actor.id;update.approved_at=new Date().toISOString()}if(action==="lock"){update.locked_by=actor.id;update.locked_at=new Date().toISOString()}if(action==="mark_paid"){if(!reference?.trim())return{ok:false,message:"Payment reference is required."};update.paid_at=new Date().toISOString();update.payment_reference=reference.trim()}if(action==="publish")update.published_at=new Date().toISOString();const {error}=await supabase.from("payroll_runs").update(update).eq("id",run.id);if(error)return{ok:false,message:error.message};
   if(action==="publish"){const {data:results}=await supabase.from("payroll_results").select("*").eq("run_id",run.id);for(const result of results??[])await supabase.from("payroll_slips").insert({company_id:actor.company_id,run_id:run.id,result_id:result.id,employee_id:result.employee_id,status:"published",snapshot:{run,result},published_at:new Date().toISOString(),published_by:actor.id});}
   await supabase.from("payroll_audit_events").insert({company_id:actor.company_id,run_id:run.id,actor_user_id:actor.id,action:`run_${action}`,previous_value:{status:run.status},new_value:{status:to,reference}});refresh();return{ok:true,message:`Payroll run ${to.replaceAll("_"," ")}.`};
 }

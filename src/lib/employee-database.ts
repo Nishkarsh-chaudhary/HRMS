@@ -113,6 +113,10 @@ type PayrollResultRow = { id:string; company_id:string; run_id:string; employee_
 type PayrollDayRow = { id:string; company_id:string; result_id:string; employee_id:string; payroll_date:string; source_classification:string; final_classification:string; paid_fraction:number; attendance_record_id:string|null; leave_request_id:string|null; policy_result:Json };
 type PayrollSlipRow = { id:string; company_id:string; run_id:string; result_id:string; employee_id:string; version:number; status:string; template_version:number; generation_id:string; storage_path:string|null; snapshot:Json; published_at:string|null; published_by:string|null; created_at:string };
 type PayrollAuditRow = { id:string; company_id:string; run_id:string|null; result_id:string|null; employee_id:string|null; actor_user_id:string|null; action:string; previous_value:Json|null; new_value:Json|null; reason:string|null; created_at:string };
+type AccessRoleRow = { id:string; company_id:string; name:string; code:string; description:string|null; category:string; data_scope:Json; sensitive_permissions:string[]; approval_level:number|null; status:string; effective_from:string; effective_to:string|null; system_role:boolean; created_by:string|null; created_at:string; updated_at:string };
+type AccessRolePermissionRow = { role_id:string; permission_code:string; created_at:string };
+type AccessRoleAssignmentRow = { id:string; company_id:string; role_id:string; user_id:string; data_scope:Json; effective_from:string; effective_to:string|null; reason:string; assigned_by:string|null; approved_by:string|null; created_at:string };
+type AccessAuditRow = { id:string; company_id:string; actor_user_id:string|null; action:string; target_type:string; target_id:string|null; previous_value:Json|null; new_value:Json|null; reason:string|null; result:string; created_at:string };
 
 
 export type EmployeeDatabase = {
@@ -145,6 +149,10 @@ export type EmployeeDatabase = {
       payroll_day_results: AttendanceTable<PayrollDayRow, "company_id" | "result_id" | "employee_id" | "payroll_date" | "source_classification" | "final_classification" | "paid_fraction">;
       payroll_slips: AttendanceTable<PayrollSlipRow, "company_id" | "run_id" | "result_id" | "employee_id" | "snapshot">;
       payroll_audit_events: AttendanceTable<PayrollAuditRow, "company_id" | "action">;
+      access_roles: AttendanceTable<AccessRoleRow, "company_id" | "name" | "code">;
+      access_role_permissions: AttendanceTable<AccessRolePermissionRow, "role_id" | "permission_code">;
+      access_role_assignments: AttendanceTable<AccessRoleAssignmentRow, "company_id" | "role_id" | "user_id" | "reason">;
+      access_audit_events: AttendanceTable<AccessAuditRow, "company_id" | "action" | "target_type">;
     };
     Views: BaseDatabase["public"]["Views"];
     Functions: BaseDatabase["public"]["Functions"] & {

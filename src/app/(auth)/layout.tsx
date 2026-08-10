@@ -42,7 +42,7 @@ export default function AuthLayout({
         </div>
 
         <div className="relative max-w-md">
-          <h2 className="text-4xl font-semibold leading-tight tracking-tight text-white">
+          <h2 className="text-4xl font-semibold leading-tight tracking-tight text-black">
             Run your entire HR operations from one place.
           </h2>
           <p className="mt-4 text-[15px] leading-relaxed text-sidebar-foreground">
