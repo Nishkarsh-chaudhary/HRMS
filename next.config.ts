@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Allow HMR/error-overlay requests when testing the dev server over the LAN.
+  allowedDevOrigins: ["192.168.1.62", "192.168.110.34"],
 };
 
 export default nextConfig;
