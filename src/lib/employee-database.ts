@@ -117,11 +117,15 @@ type AccessRoleRow = { id:string; company_id:string; name:string; code:string; d
 type AccessRolePermissionRow = { role_id:string; permission_code:string; created_at:string };
 type AccessRoleAssignmentRow = { id:string; company_id:string; role_id:string; user_id:string; data_scope:Json; effective_from:string; effective_to:string|null; reason:string; assigned_by:string|null; approved_by:string|null; created_at:string };
 type AccessAuditRow = { id:string; company_id:string; actor_user_id:string|null; action:string; target_type:string; target_id:string|null; previous_value:Json|null; new_value:Json|null; reason:string|null; result:string; created_at:string };
+type CompanyProfileFields = { tagline:string|null; legal_name:string|null; founded_year:number|null; headquarters:string|null; company_type:string|null; markets_served:string|null; website:string|null; overview:string|null; story:string|null; vision:string|null; mission:string|null; core_values:Json; offerings:Json; differentiators:Json; industries_customers:string|null; track_record:Json; certifications_awards:string|null; leadership:Json; office_address:string|null; phone:string|null; contact_email:string|null; social_links:string|null };
+type BaseCompanies = BaseDatabase["public"]["Tables"]["companies"];
+type ProfileCompanies = { Row: BaseCompanies["Row"] & CompanyProfileFields; Insert: BaseCompanies["Insert"] & Partial<CompanyProfileFields>; Update: BaseCompanies["Update"] & Partial<CompanyProfileFields>; Relationships: BaseCompanies["Relationships"] };
 
 
 export type EmployeeDatabase = {
   public: {
-    Tables: Omit<BaseDatabase["public"]["Tables"], "users" | "designations"> & {
+    Tables: Omit<BaseDatabase["public"]["Tables"], "users" | "designations" | "companies"> & {
+      companies: ProfileCompanies;
       users: EmployeeUsers;
       designations: OrganisationDesignations;
       organisation_nodes: OrganisationNodesTable;

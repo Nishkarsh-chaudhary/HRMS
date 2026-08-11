@@ -1,0 +1,25 @@
+-- Optional company profile content. Existing company identity and operational fields remain unchanged.
+alter table public.companies
+  add column if not exists tagline text,
+  add column if not exists legal_name text,
+  add column if not exists founded_year integer check (founded_year is null or founded_year between 1800 and 2200),
+  add column if not exists headquarters text,
+  add column if not exists company_type text,
+  add column if not exists markets_served text,
+  add column if not exists website text,
+  add column if not exists overview text,
+  add column if not exists story text,
+  add column if not exists vision text,
+  add column if not exists mission text,
+  add column if not exists core_values jsonb not null default '[]'::jsonb,
+  add column if not exists offerings jsonb not null default '[]'::jsonb,
+  add column if not exists differentiators jsonb not null default '[]'::jsonb,
+  add column if not exists industries_customers text,
+  add column if not exists track_record jsonb not null default '[]'::jsonb,
+  add column if not exists certifications_awards text,
+  add column if not exists leadership jsonb not null default '[]'::jsonb,
+  add column if not exists office_address text,
+  add column if not exists phone text,
+  add column if not exists contact_email text,
+  add column if not exists social_links text;
+
